@@ -120,7 +120,7 @@
       opacity: 1;
     }
 
-    #answerImage {
+    #answerCanvas {
       display: block;
       max-width: 100%;
       max-height: 82svh;
@@ -164,11 +164,11 @@
 
   <div id="answerOverlay" aria-hidden="true">
     <div class="answer-panel">
-      <img
-        id="answerImage"
-        src="image_answer.jpg"
-        alt="正解画像"
-      >
+      <canvas
+        id="answerCanvas"
+        class="answer-canvas"
+        aria-label="正解画像"
+      ></canvas>
       <p class="save-note">正解！ この画像を長押しして保存してください。</p>
     </div>
   </div>
@@ -179,6 +179,7 @@
     (() => {
       const quizImage = document.getElementById("quizImage");
       const answerOverlay = document.getElementById("answerOverlay");
+      const answerCanvas = document.getElementById("answerCanvas");
       const maskCanvas = document.getElementById("maskCanvas");
       const ctx = maskCanvas.getContext("2d", { willReadFrequently: true });
 
@@ -270,10 +271,165 @@
         }
       });
 
-      function showAnswer() {
+
+      function formatCorrectDateTime(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        const hour = String(date.getHours()).padStart(2, "0");
+        const minute = String(date.getMinutes()).padStart(2, "0");
+        const second = String(date.getSeconds()).padStart(2, "0");
+
+        return `${year}/${month}/${day} ${hour}:${minute}:${second}`;
+      }
+
+
+      function createRandomSerial() {
+        const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        const bytes = new Uint32Array(12);
+
+        if (window.crypto && window.crypto.getRandomValues) {
+          window.crypto.getRandomValues(bytes);
+        } else {
+          for (let i = 0; i < bytes.length; i++) {
+            bytes[i] = Math.floor(Math.random() * 0xffffffff);
+          }
+        }
+
+        let serial = "";
+
+        for (let i = 0; i < bytes.length; i++) {
+          serial += chars[bytes[i] % chars.length];
+
+          if (i === 3 || i === 7) {
+            serial += "-";
+          }
+        }
+
+        return serial;
+      }
+
+
+      function drawAnswerImageWithSecurityInfo() {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+
+          img.onload = () => {
+            const canvas = answerCanvas;
+            const drawCtx = canvas.getContext("2d");
+
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+
+            drawCtx.clearRect(0, 0, canvas.width, canvas.height);
+            drawCtx.drawImage(img, 0, 0);
+
+            const now = new Date();
+
+            const dateText =
+              "正解日時: " + formatCorrectDateTime(now);
+
+            const serialText =
+              "SERIAL: " + createRandomSerial();
+
+            const noteText =
+              "不正コピー防止のため識別情報を表示しています";
+
+            /*
+              右上端へ小さく焼き込む。
+              画像サイズに応じて自動調整。
+            */
+            const mainFont =
+              Math.max(11, Math.round(canvas.width * 0.0080));
+
+            const noteFont =
+              Math.max(9, Math.round(canvas.width * 0.0065));
+
+            const padX =
+              Math.max(6, Math.round(canvas.width * 0.006));
+
+            const padY =
+              Math.max(4, Math.round(canvas.height * 0.004));
+
+            const lineGap =
+              Math.round(mainFont * 1.15);
+
+            drawCtx.textAlign = "right";
+            drawCtx.textBaseline = "top";
+
+            drawCtx.font = `700 ${mainFont}px sans-serif`;
+
+            const widths = [
+              drawCtx.measureText(dateText).width,
+              drawCtx.measureText(serialText).width
+            ];
+
+            drawCtx.font = `500 ${noteFont}px sans-serif`;
+            widths.push(drawCtx.measureText(noteText).width);
+
+            const boxWidth =
+              Math.max(...widths) + padX * 2;
+
+            const boxHeight =
+              lineGap * 2 + noteFont * 1.35 + padY * 2;
+
+            drawCtx.fillStyle = "rgba(0, 0, 0, 0.44)";
+            drawCtx.fillRect(
+              canvas.width - boxWidth,
+              0,
+              boxWidth,
+              boxHeight
+            );
+
+            drawCtx.fillStyle = "#ffffff";
+            drawCtx.shadowColor = "rgba(0,0,0,0.9)";
+            drawCtx.shadowBlur =
+              Math.max(1, Math.round(mainFont * 0.08));
+
+            const x = canvas.width - padX;
+            const y = padY;
+
+            drawCtx.font = `700 ${mainFont}px sans-serif`;
+            drawCtx.fillText(dateText, x, y);
+            drawCtx.fillText(serialText, x, y + lineGap);
+
+            drawCtx.font = `500 ${noteFont}px sans-serif`;
+            drawCtx.fillText(
+              noteText,
+              x,
+              y + lineGap * 2
+            );
+
+            drawCtx.shadowBlur = 0;
+
+            resolve();
+          };
+
+          img.onerror = () => {
+            reject(
+              new Error("image_answer.jpg を読み込めませんでした。")
+            );
+          };
+
+          img.src = "image_answer.jpg";
+        });
+      }
+
+
+      async function showAnswer() {
         alreadyCorrect = true;
-        answerOverlay.classList.add("show");
-        answerOverlay.setAttribute("aria-hidden", "false");
+
+        try {
+          await drawAnswerImageWithSecurityInfo();
+
+          answerOverlay.classList.add("show");
+          answerOverlay.setAttribute("aria-hidden", "false");
+
+        } catch (error) {
+          console.error(error);
+          alreadyCorrect = false;
+          alert("正解画像を表示できませんでした。image_answer.jpg を確認してください。");
+        }
       }
 
       function resetQuiz() {
@@ -286,7 +442,7 @@
         }, 520);
       }
 
-      document.getElementById("answerImage").addEventListener("click", resetQuiz);
+      answerCanvas.addEventListener("click", resetQuiz);
     })();
   </script>
 </body>
